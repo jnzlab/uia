@@ -2,6 +2,7 @@
 import { useState, useRef, useEffect } from "react";
 import { ID } from "./appwrite";
 import { Client, Storage } from "appwrite";
+import Image from "next/image";
 
 const client = new Client()
     .setEndpoint(process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT || '')
@@ -17,17 +18,37 @@ interface ImageFile {
 
 const GalleryApp = () => {
   const [images, setImages] = useState<ImageFile[]>([]);
+  const [isUploading, setIsUploading] = useState(false);
+  const [selectedFileName, setSelectedFileName] = useState<string>('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const bucketId = process.env.NEXT_PUBLIC_APPWRITE_BUCKET_ID || '';
 
   const handleFileUpload = async () => {
+    if (isUploading) return;
+    
     if (!fileInputRef.current?.files?.[0]) {
       console.error('No file selected');
       return;
     }
 
+    const file = fileInputRef.current.files[0];
+    
+    // Check file type
+    if (!file.type.startsWith('image/')) {
+      alert('Please select an image file');
+      return;
+    }
+
+    // Check file size (e.g., 5MB limit)
+    const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
+    if (file.size > MAX_FILE_SIZE) {
+      alert('File size should be less than 5MB');
+      return;
+    }
+
+    setIsUploading(true);
+
     try {
-      const file = fileInputRef.current.files[0];
       const response = await storage.createFile(
         bucketId,
         ID.unique(),
@@ -43,12 +64,31 @@ const GalleryApp = () => {
         url: fileUrl.href
       }]);
 
-      // Clear the input field after successful upload
+      // Clear the input field and selected filename after successful upload
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
+        setSelectedFileName('');
       }
     } catch (error) {
       console.error('Upload failed:', error);
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handleFileSelect = () => {
+    const file = fileInputRef.current?.files?.[0];
+    if (file) {
+      setSelectedFileName(file.name);
+    } else {
+      setSelectedFileName('');
+    }
+  };
+
+  const clearSelectedFile = () => {
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+      setSelectedFileName('');
     }
   };
 
@@ -81,18 +121,44 @@ const GalleryApp = () => {
           </h1>
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
             <div className="relative flex-1">
-              <input 
-                type="file" 
-                ref={fileInputRef} 
-                accept="image/*"
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900 placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-              />
+              <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-gray-300 border-dashed rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100">
+                <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                  <svg className="w-8 h-8 mb-4 text-gray-500" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 20 16">
+                    <path stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 13h3a3 3 0 0 0 0-6h-.025A5.56 5.56 0 0 0 16 6.5 5.5 5.5 0 0 0 5.207 5.021C5.137 5.017 5.071 5 5 5a4 4 0 0 0 0 8h2.167M10 15V6m0 0L8 8m2-2 2 2"/>
+                  </svg>
+                  <p className="mb-2 text-sm text-gray-500"><span className="font-semibold">Click to upload</span> or drag and drop</p>
+                  <p className="text-xs text-gray-500">PNG, JPG or GIF (MAX. 5MB)</p>
+                </div>
+                <input 
+                  type="file" 
+                  ref={fileInputRef} 
+                  accept="image/*"
+                  className="hidden"
+                  onChange={handleFileSelect}
+                />
+              </label>
+              {selectedFileName && (
+                <div className="mt-2 flex items-center justify-between bg-gray-100 p-2 rounded">
+                  <span className="text-sm text-gray-600">{selectedFileName}</span>
+                  <button
+                    onClick={clearSelectedFile}
+                    className="ml-2 text-red-500 hover:text-red-700"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                    </svg>
+                  </button>
+                </div>
+              )}
             </div>
             <button 
               onClick={handleFileUpload}
-              className="inline-flex items-center justify-center rounded-lg bg-blue-600 px-6 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 sm:w-auto"
+              disabled={isUploading || !selectedFileName}
+              className={`inline-flex items-center justify-center rounded-lg ${
+                isUploading || !selectedFileName ? 'bg-gray-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-500'
+              } px-6 py-2.5 text-sm font-semibold text-white shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 sm:w-auto`}
             >
-              Upload Image
+              {isUploading ? 'Uploading...' : 'Upload Image'}
             </button>
           </div>
         </div>
@@ -108,11 +174,13 @@ const GalleryApp = () => {
                 key={image.$id} 
                 className="group relative overflow-hidden rounded-lg bg-white shadow-md transition-all hover:shadow-lg"
               >
-                <div className="aspect-square">
-                  <img 
+                <div className="aspect-square relative">
+                  <Image 
                     src={image.url} 
                     alt={image.name}
-                    className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+                    fill
+                    sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 25vw"
+                    className="object-cover transition-transform duration-300 group-hover:scale-105"
                   />
                 </div>
                 <div className="p-4">
